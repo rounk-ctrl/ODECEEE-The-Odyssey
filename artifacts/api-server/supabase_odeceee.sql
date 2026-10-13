@@ -228,6 +228,57 @@ begin
 end;
 $$;
 
+create or replace function app_leaderboard()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_winner_id bigint;
+begin
+  select id into v_winner_id
+  from teams
+  where finished_at is not null
+  order by finished_at asc, id asc
+  limit 1;
+
+  return coalesce((
+    with score_board as (
+      select
+        t.id,
+        t.name,
+        coalesce(sum(l.amount), 0)::int as total_points,
+        least(greatest(t.current_step - 1, 0), 7) as islands_completed,
+        t.finished_at
+      from teams t
+      left join ledger l on l.team_id = t.id
+      group by t.id
+    ), ranked as (
+      select
+        row_number() over (order by total_points desc, finished_at asc nulls last, name asc) as rank,
+        id,
+        name,
+        total_points,
+        islands_completed,
+        finished_at,
+        (id = v_winner_id) as winner
+      from score_board
+    )
+    select jsonb_agg(jsonb_build_object(
+      'rank', rank,
+      'team_id', id,
+      'team_name', name,
+      'total_points', total_points,
+      'islands_completed', islands_completed,
+      'finished_at', finished_at,
+      'winner', winner
+    ) order by rank)
+    from ranked
+  ), '[]'::jsonb);
+end;
+$$;
+
 create or replace function app_crew_state(p_team_id bigint, p_token text)
 returns jsonb
 language plpgsql
@@ -243,7 +294,6 @@ declare
   v_island_id int;
   v_wait_seconds int;
   v_locked_until timestamptz;
-  v_winner_id bigint;
 begin
   v_team := app_require_team(p_team_id, p_token);
   select coalesce(sum(amount), 0) into v_score from ledger where team_id = v_team.id;
@@ -266,12 +316,6 @@ begin
     end if;
   end if;
 
-  select id into v_winner_id
-  from teams
-  where finished_at is not null
-  order by finished_at asc, id asc
-  limit 1;
-
   return jsonb_build_object(
     'team_name', v_team.name,
     'score', v_score,
@@ -282,41 +326,8 @@ begin
     'location_name', v_location,
     'coords', v_coords,
     'finished_at', v_team.finished_at,
-    'winner', (v_winner_id = v_team.id),
     'wait_seconds', greatest(v_wait_seconds, 0),
-    'leaderboard', coalesce((
-      with score_board as (
-        select
-          t.id,
-          t.name,
-          coalesce(sum(l.amount), 0)::int as total_points,
-          least(greatest(t.current_step - 1, 0), 7) as islands_completed,
-          t.finished_at
-        from teams t
-        left join ledger l on l.team_id = t.id
-        group by t.id
-      ), ranked as (
-        select
-          row_number() over (order by total_points desc, finished_at asc nulls last, name asc) as rank,
-          id,
-          name,
-          total_points,
-          islands_completed,
-          finished_at,
-          (id = v_winner_id) as winner
-        from score_board
-      )
-      select jsonb_agg(jsonb_build_object(
-        'rank', rank,
-        'team_id', id,
-        'team_name', name,
-        'total_points', total_points,
-        'islands_completed', islands_completed,
-        'finished_at', finished_at,
-        'winner', winner
-      ) order by rank)
-      from ranked
-    ), '[]'::jsonb)
+    'leaderboard', app_leaderboard()
   );
 end;
 $$;
@@ -741,38 +752,9 @@ set search_path = public
 as $$
 declare
   v_role text;
-  v_winner_id bigint;
   v_result jsonb;
 begin
   v_role := app_require_operator(p_token, false);
-
-  select id into v_winner_id
-  from teams
-  where finished_at is not null
-  order by finished_at asc, id asc
-  limit 1;
-
-  with score_board as (
-    select
-      t.id,
-      t.name,
-      coalesce(sum(l.amount), 0)::int as total_points,
-      least(greatest(t.current_step - 1, 0), 7) as islands_completed,
-      t.finished_at
-    from teams t
-    left join ledger l on l.team_id = t.id
-    group by t.id
-  ), ranked as (
-    select
-      row_number() over (order by total_points desc, finished_at asc nulls last, name asc) as rank,
-      id,
-      name,
-      total_points,
-      islands_completed,
-      finished_at,
-      (id = v_winner_id) as winner
-    from score_board
-  )
   select jsonb_build_object(
     'role', v_role,
     'awaiting', coalesce((
@@ -799,18 +781,7 @@ begin
       join decoy_locations d on d.id = t.decoy_id
       where t.status = 'astray' and t.finished_at is null
     ), '[]'::jsonb),
-    'ledger', coalesce((
-      select jsonb_agg(jsonb_build_object(
-        'rank', rank,
-        'team_id', id,
-        'team_name', name,
-        'total_points', total_points,
-        'islands_completed', islands_completed,
-        'finished_at', finished_at,
-        'winner', winner
-      ) order by rank)
-      from ranked
-    ), '[]'::jsonb),
+    'ledger', app_leaderboard(),
     'crews', case when v_role = 'admin' then coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', t.id,
@@ -954,6 +925,7 @@ revoke all on operator_sessions from anon, authenticated;
 grant execute on function build_route_for_new_crew to anon, authenticated;
 grant execute on function app_login_role(text, text) to anon, authenticated;
 grant execute on function app_login_crew(text) to anon, authenticated;
+grant execute on function app_leaderboard() to anon, authenticated;
 grant execute on function app_crew_state(bigint, text) to anon, authenticated;
 grant execute on function app_submit_keeper_word(bigint, text, text) to anon, authenticated;
 grant execute on function app_grant(text, bigint, int) to anon, authenticated;
