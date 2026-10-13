@@ -327,7 +327,7 @@ begin
   if v_word <> upper(v_settings.keeper_word) then
     update team_word_attempts
     set failed_count = case when failed_count + 1 >= 5 then 0 else failed_count + 1 end,
-        locked_until = case when failed_count + 1 >= 5 then now() + interval '30 seconds' else null end,
+        locked_until = case when failed_count + 1 >= 5 then now() + interval '30 seconds' else null end
     where team_id = v_team.id;
 
     if (select locked_until from team_word_attempts where team_id = v_team.id) > now() then
