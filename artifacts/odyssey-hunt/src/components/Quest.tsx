@@ -49,6 +49,7 @@ type CrewStateResponse = {
   wait_seconds: number;
   leaderboard: any[];
 };
+type LeaderboardResponse = any[];
 type CrewSubmitResponse = { ok: boolean; message: string };
 type SnapshotResponse = {
   awaiting: any[];
@@ -194,10 +195,14 @@ function Crew({ teamId, token, onOut }: { teamId: number; token: string; onOut: 
   const [submitting, setSubmitting] = useState(false);
   const [now, setNow] = useState(Date.now());
   const load = useCallback(() => {
-    rpc<CrewStateResponse>("app_crew_state", { p_team_id: teamId, p_token: token })
-      .then((state) => {
+    Promise.all([
+      rpc<CrewStateResponse>("app_crew_state", { p_team_id: teamId, p_token: token }),
+      rpc<LeaderboardResponse>("app_leaderboard", {}),
+    ])
+      .then(([state, leaderboard]) => {
         setSt({
           ...state,
+          leaderboard,
           locked_until: state.wait_seconds
             ? new Date(Date.now() + state.wait_seconds * 1000).toISOString()
             : null,
