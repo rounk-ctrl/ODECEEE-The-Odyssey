@@ -1,4 +1,5 @@
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists decoy_locations (
   id bigserial primary key,
@@ -158,7 +159,7 @@ create or replace function app_login_role(p_role text, p_password text)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_settings settings;
@@ -180,7 +181,7 @@ begin
     raise exception 'That password is not known.';
   end if;
 
-  v_token := encode(extensions.gen_random_bytes(24), 'hex');
+  v_token := encode(gen_random_bytes(24), 'hex');
   insert into operator_sessions(token, role) values (v_token, v_role);
 
   return jsonb_build_object('role', v_role, 'token', v_token);
@@ -191,7 +192,7 @@ create or replace function app_login_crew(p_login_code text)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_team teams;
@@ -205,7 +206,7 @@ begin
     raise exception 'That crew code is not known.';
   end if;
 
-  v_token := encode(extensions.gen_random_bytes(24), 'hex');
+  v_token := encode(gen_random_bytes(24), 'hex');
   update teams
   set session_token = v_token,
       last_seen = now()
@@ -532,7 +533,7 @@ create or replace function app_admin_add_crew_internal(p_name text)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_name text;
@@ -546,7 +547,7 @@ begin
   end if;
 
   loop
-    v_code := upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 6));
+    v_code := upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 6));
     exit when not exists(select 1 from teams where login_code = v_code);
   end loop;
 
