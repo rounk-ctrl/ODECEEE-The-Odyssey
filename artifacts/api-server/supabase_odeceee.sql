@@ -180,7 +180,7 @@ begin
     raise exception 'That password is not known.';
   end if;
 
-  v_token := encode(gen_random_bytes(24), 'hex');
+  v_token := encode(extensions.gen_random_bytes(24), 'hex');
   insert into operator_sessions(token, role) values (v_token, v_role);
 
   return jsonb_build_object('role', v_role, 'token', v_token);
@@ -205,7 +205,7 @@ begin
     raise exception 'That crew code is not known.';
   end if;
 
-  v_token := encode(gen_random_bytes(24), 'hex');
+  v_token := encode(extensions.gen_random_bytes(24), 'hex');
   update teams
   set session_token = v_token,
       last_seen = now()
@@ -546,7 +546,7 @@ begin
   end if;
 
   loop
-    v_code := upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 6));
+    v_code := upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 6));
     exit when not exists(select 1 from teams where login_code = v_code);
   end loop;
 
