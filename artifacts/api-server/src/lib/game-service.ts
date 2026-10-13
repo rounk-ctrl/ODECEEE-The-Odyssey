@@ -78,6 +78,9 @@ export async function loadAdminTeam(teamId: string, currentRound?: number) {
     currentCheckpoint: currentRoute?.checkpoint.isActive
       ? currentRoute.checkpoint.name
       : null,
+    flowState: team.flowState,
+    checkpointArrivedAt: team.checkpointArrivedAt,
+    lastAnswerCorrect: team.lastAnswerCorrect,
     lastLat: team.lastLat,
     lastLng: team.lastLng,
     lastAccuracy: team.lastAccuracy,
@@ -94,6 +97,9 @@ export async function loadAdminTeam(teamId: string, currentRound?: number) {
       lng: route.checkpoint.lng,
       radiusM: route.checkpoint.radiusM,
       isActive: route.checkpoint.isActive,
+      isFinalStop: route.checkpoint.isFinalStop,
+      isDetour: route.checkpoint.isDetour,
+      questionText: route.checkpoint.questionText,
     })),
     completions: team.completions.map((completion) => ({
       id: completion.id,
@@ -103,6 +109,7 @@ export async function loadAdminTeam(teamId: string, currentRound?: number) {
       completedAt: completion.completedAt,
       distanceAtCaptureM: completion.distanceAtCaptureM,
       accuracyM: completion.accuracyM,
+      verificationMethod: completion.verificationMethod,
     })),
   };
 }
