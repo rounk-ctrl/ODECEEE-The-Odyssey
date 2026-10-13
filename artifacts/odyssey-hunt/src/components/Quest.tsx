@@ -29,7 +29,36 @@ const fmtTime = (t?: string | null) =>
     ? new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : "—";
 
-type Session = { role: "crew" | "keeper" | "admin"; secret: string };
+type StaffRole = "keeper" | "admin";
+type Session =
+  | { role: "crew"; teamId: number; token: string }
+  | { role: StaffRole; token: string };
+
+type CrewLoginResponse = { team_id: number; team_name: string; token: string };
+type StaffLoginResponse = { role: StaffRole; token: string };
+type CrewStateResponse = {
+  team_name: string;
+  score: number;
+  status: string;
+  current_step: number;
+  total_steps: number;
+  theme: string;
+  location_name: string;
+  coords: string;
+  finished_at: string | null;
+  wait_seconds: number;
+};
+type CrewSubmitResponse = { ok: boolean; message: string };
+type SnapshotResponse = {
+  awaiting: any[];
+  astray: any[];
+  ledger: any[];
+  crews: any[];
+  islands: any[];
+  decoys: any[];
+  keeper_word: string | null;
+  ledger_history: any[];
+};
 
 export function Quest() {
   const [s, setS] = useState<Session | null>(null);
@@ -38,9 +67,11 @@ export function Quest() {
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as Session;
-      if (
-        (parsed.role === "crew" || parsed.role === "keeper" || parsed.role === "admin") &&
-        typeof parsed.secret === "string"
+      if (parsed.role === "crew" && typeof parsed.teamId === "number" && typeof parsed.token === "string")
+        setS(parsed);
+      else if (
+        (parsed.role === "keeper" || parsed.role === "admin") &&
+        typeof parsed.token === "string"
       )
         setS(parsed);
       else localStorage.removeItem("quest-session");
@@ -67,8 +98,8 @@ export function Quest() {
           <div className="double-rule mt-4" />
         </header>
         {!s && <Login onIn={save} />}
-        {s?.role === "crew" && <Crew token={s.secret} onOut={() => save(null)} />}
-        {s && s.role !== "crew" && <Staff pass={s.secret} admin={s.role === "admin"} />}
+        {s?.role === "crew" && <Crew teamId={s.teamId} token={s.token} onOut={() => save(null)} />}
+        {s && s.role !== "crew" && <Staff token={s.token} admin={s.role === "admin"} />}
         {s && (
           <div className="mt-10 text-center">
             <button className="label underline" onClick={() => save(null)}>
@@ -92,14 +123,24 @@ function Login({ onIn }: { onIn: (s: Session) => void }) {
     setBusy(true);
     try {
       if (tab === "crew")
-        onIn({ role: "crew", secret: await rpc<string>("crew_login", { p_code: val }) });
-      else if (await rpc<boolean>("staff_login", { p_role: tab, p_pass: val }))
-        onIn({ role: tab, secret: val });
-      else setErr("That word is not known.");
+        {
+          const session = await rpc<CrewLoginResponse>("app_login_crew", { p_login_code: val });
+          onIn({ role: "crew", teamId: session.team_id, token: session.token });
+        }
+      else {
+        const session = await rpc<StaffLoginResponse>("app_login_role", {
+          p_role: tab,
+          p_password: val,
+        });
+        onIn({ role: session.role, token: session.token });
+      }
     } catch (e) {
+      const message = e instanceof Error ? e.message : "";
       setErr(
-        e instanceof Error && e.message.includes("That code is not known")
+        message.includes("That crew code is not known")
           ? "That code is not known."
+          : message.includes("That password is not known")
+            ? "That word is not known."
           : "The gate could not be reached. Try again.",
       );
     } finally {
@@ -144,7 +185,7 @@ function Login({ onIn }: { onIn: (s: Session) => void }) {
   );
 }
 
-function Crew({ token, onOut }: { token: string; onOut: () => void }) {
+function Crew({ teamId, token, onOut }: { teamId: number; token: string; onOut: () => void }) {
   const [st, setSt] = useState<any>(null);
   const [word, setWord] = useState("");
   const [msg, setMsg] = useState("");
@@ -152,13 +193,25 @@ function Crew({ token, onOut }: { token: string; onOut: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [now, setNow] = useState(Date.now());
   const load = useCallback(() => {
-    rpc("crew_state", { p_token: token })
+    rpc<CrewStateResponse>("app_crew_state", { p_team_id: teamId, p_token: token })
       .then((state) => {
-        setSt(state);
+        setSt({
+          ...state,
+          locked_until: state.wait_seconds
+            ? new Date(Date.now() + state.wait_seconds * 1000).toISOString()
+            : null,
+        });
         setLoadError(false);
       })
-      .catch(() => setLoadError(true));
-  }, [token]);
+      .catch((error) => {
+        if (error instanceof Error && error.message.includes("another device")) {
+          setSt({ displaced: true });
+          setLoadError(false);
+          return;
+        }
+        setLoadError(true);
+      });
+  }, [teamId, token]);
   usePulse(load);
   useEffect(() => {
     const i = setInterval(() => setNow(Date.now()), 1000);
@@ -194,15 +247,13 @@ function Crew({ token, onOut }: { token: string; onOut: () => void }) {
     setSubmitting(true);
     setMsg("");
     try {
-      const r = await rpc<string>("crew_submit", { p_token: token, p_word: word });
+      const r = await rpc<CrewSubmitResponse>("app_submit_keeper_word", {
+        p_team_id: teamId,
+        p_token: token,
+        p_word: word,
+      });
       setWord("");
-      setMsg(
-        r === "wrong"
-          ? "That word is not known."
-          : r === "locked"
-            ? "Thy crew is lost: wait 30 seconds."
-            : "",
-      );
+      setMsg(r.message);
       load();
     } catch {
       setMsg("The Keeper could not be reached. Try again.");
@@ -219,12 +270,14 @@ function Crew({ token, onOut }: { token: string; onOut: () => void }) {
         </p>
       )}
       <div className="flex items-baseline justify-between border-b pb-2">
-        <h2 className="text-2xl">{st.name}</h2>
+        <h2 className="text-2xl">{st.team_name}</h2>
         <span className="mono">{st.score} pts</span>
       </div>
       {st.finished_at ? (
         <div className="py-10 text-center">
-          <div className="label">Island 7 of 7</div>
+          <div className="label">
+            Island {st.total_steps} of {st.total_steps}
+          </div>
           <p className="mt-3 text-4xl">Ithaca reached</p>
           <div className="double-rule my-6" />
           <p className="mono">Final score {st.score}</p>
@@ -233,12 +286,14 @@ function Crew({ token, onOut }: { token: string; onOut: () => void }) {
       ) : (
         <>
           <div className="py-8 text-center">
-            <div className="label">Island {st.step} of 7</div>
+            <div className="label">
+              Island {st.current_step} of {st.total_steps}
+            </div>
             <p className="mt-3 text-4xl">{st.theme}</p>
             <p className="mt-2 mono text-lg">Coordinates: {st.coords}</p>
           </div>
           <div className="double-rule" />
-          {st.awaiting ? (
+          {st.status === "awaiting" ? (
             <p className="py-8 text-center text-xl italic">Awaiting the Keeper's judgment</p>
           ) : (
             <form onSubmit={submit} className="space-y-4 pt-6">
@@ -278,28 +333,65 @@ function H({ children }: { children: ReactNode }) {
   );
 }
 
-function Staff({ pass, admin }: { pass: string; admin: boolean }) {
-  const [q, setQ] = useState<any>({ awaiting: [], astray: [] });
-  const [board, setBoard] = useState<any[]>([]);
-  const [ad, setAd] = useState<any>(null);
+function Staff({ token, admin }: { token: string; admin: boolean }) {
+  const [snapshot, setSnapshot] = useState<SnapshotResponse | null>(null);
   const [err, setErr] = useState("");
   const load = useCallback(() => {
-    rpc("keeper_queue", { p_pass: pass })
-      .then(setQ)
-      .catch((e) => setErr(e.message));
-    rpc("ledger_board", { p_pass: pass })
-      .then(setBoard)
-      .catch(() => {});
-    if (admin)
-      rpc("admin_data", { p_pass: pass })
-        .then(setAd)
-        .catch(() => {});
-  }, [pass, admin]);
+    rpc<SnapshotResponse>("app_snapshot", { p_token: token })
+      .then((data) => {
+        setSnapshot(data);
+        setErr("");
+      })
+      .catch((e) =>
+        setErr(
+          e instanceof Error && e.message === "denied"
+            ? "Thy password is no longer known. Depart and return."
+            : e instanceof Error
+              ? e.message
+              : "The gate could not be reached. Try again.",
+        ),
+      );
+  }, [token]);
   usePulse(load);
   const act = async (fn: string, args: Record<string, unknown>) => {
     setErr("");
     try {
-      await rpc(fn, { p_pass: pass, ...args });
+      if (fn === "keeper_grant")
+        await rpc("app_grant", { p_token: token, p_team_id: args.p_team, p_points: args.p_points });
+      else if (fn === "keeper_return")
+        await rpc("app_return_to_siren", { p_token: token, p_team_id: args.p_team });
+      else if (fn === "keeper_astray")
+        await rpc("app_send_astray", { p_token: token, p_team_id: args.p_team });
+      else if (fn === "keeper_adjust")
+        await rpc("app_adjust_points", {
+          p_token: token,
+          p_team_id: args.p_team,
+          p_amount: args.p_amount,
+          p_reason: args.p_reason,
+        });
+      else if (fn === "admin_release")
+        await rpc("app_admin_release_device", { p_token: token, p_team_id: args.p_team });
+      else if (fn === "admin_remove_crew")
+        await rpc("app_admin_remove_crew", { p_token: token, p_team_id: args.p_team });
+      else if (fn === "admin_save_island")
+        await rpc("app_admin_save_island", {
+          p_token: token,
+          p_id: args.p_id,
+          p_theme: args.p_theme,
+          p_location_name: args.p_loc,
+          p_coords: args.p_coords,
+          p_is_fixed: args.p_is_fixed,
+          p_fixed_order: args.p_fixed_order,
+        });
+      else if (fn === "admin_save_decoy")
+        await rpc("app_admin_save_decoy", {
+          p_token: token,
+          p_id: args.p_id,
+          p_theme: args.p_theme,
+          p_location_name: args.p_loc,
+          p_coords: args.p_coords,
+        });
+      else throw new Error("Unknown action.");
       load();
       return true;
     } catch (e: any) {
@@ -309,6 +401,48 @@ function Staff({ pass, admin }: { pass: string; admin: boolean }) {
       return false;
     }
   };
+  const q = {
+    awaiting: (snapshot?.awaiting ?? []).map((c: any) => ({
+      id: c.team_id,
+      name: c.team_name,
+      island: c.theme,
+      location_name: c.location_name,
+    })),
+    astray: (snapshot?.astray ?? []).map((c: any) => ({
+      id: c.team_id,
+      name: c.team_name,
+      decoy: c.location_name,
+      island: c.theme,
+    })),
+  };
+  const board = (snapshot?.ledger ?? []).map((r: any) => ({
+    ...r,
+    id: r.team_id,
+    name: r.team_name,
+    points: r.total_points,
+    completed: r.islands_completed,
+  }));
+  const ad =
+    admin && snapshot
+      ? {
+          crews: (snapshot.crews ?? []).map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            code: c.login_code,
+            device: c.session_active,
+          })),
+          islands: snapshot.islands ?? [],
+          decoys: snapshot.decoys ?? [],
+          settings: { keeper_word: snapshot.keeper_word ?? "" },
+          history: (snapshot.ledger_history ?? []).map((h: any) => ({
+            at: h.created_at,
+            crew: h.team_name,
+            amount: h.amount,
+            reason: h.reason,
+            actor: h.actor,
+          })),
+        }
+      : null;
 
   return (
     <section>
@@ -329,8 +463,7 @@ function Staff({ pass, admin }: { pass: string; admin: boolean }) {
               <div>
                 <div className="text-xl">{c.name}</div>
                 <div className="label">
-                  At {c.decoy}
-                  {c.arrived ? " · has arrived" : ""}
+                  {c.island} · at {c.decoy}
                 </div>
               </div>
               <button className="btn" onClick={() => act("keeper_return", { p_team: c.id })}>
@@ -347,7 +480,7 @@ function Staff({ pass, admin }: { pass: string; admin: boolean }) {
       <H>Add or deduct points</H>
       <Adjust crews={board} act={act} />
 
-      {admin && ad && <Admin pass={pass} ad={ad} board={board} act={act} />}
+      {admin && ad && <Admin token={token} ad={ad} board={board} act={act} onError={setErr} />}
     </section>
   );
 }
@@ -359,7 +492,7 @@ function Judge({ c, act }: { c: any; act: (f: string, a: any) => Promise<boolean
       <div className="flex items-baseline justify-between">
         <span className="text-xl">{c.name}</span>
         <span className="label">
-          Island {c.step} · {c.island}
+          {c.island} · {c.location_name}
         </span>
       </div>
       <div className="mt-2 flex gap-2">
@@ -508,15 +641,17 @@ function Row({
 }
 
 function Admin({
-  pass,
+  token,
   ad,
   board,
   act,
+  onError,
 }: {
-  pass: string;
+  token: string;
   ad: any;
   board: any[];
   act: (f: string, a: any) => Promise<boolean>;
+  onError: (message: string) => void;
 }) {
   const [newCode, setNewCode] = useState("");
   const [set, setSet] = useState<Record<string, string>>({});
@@ -544,7 +679,7 @@ function Admin({
   return (
     <>
       <H>Crews</H>
-      <AddCrew pass={pass} onCode={setNewCode} />
+      <AddCrew token={token} onCode={setNewCode} />
       {newCode && (
         <p className="mt-2">
           New crew's code: <span className="mono text-primary">{newCode}</span>
@@ -602,6 +737,8 @@ function Admin({
               p_theme: v.theme,
               p_loc: v.location_name,
               p_coords: v.coords,
+              p_is_fixed: v.is_fixed,
+              p_fixed_order: v.fixed_order ?? null,
             })
           }
         />
@@ -646,19 +783,36 @@ function Admin({
       ).map(([k, l]) => (
         <div key={k} className="border-b py-3">
           <div className="label">
-            {l} · now <span className="text-primary">{ad.settings[k]}</span>
+            {k === "keeper_word" ? (
+              <>
+                {l} · now <span className="text-primary">{ad.settings[k]}</span>
+              </>
+            ) : (
+              <>Set a new {l.toLowerCase()}</>
+            )}
           </div>
           <div className="mt-2 flex gap-2">
             <input
               className="field"
+              type={k === "keeper_word" ? "text" : "password"}
               value={set[k] ?? ""}
               onChange={(e) => setSet({ ...set, [k]: e.target.value })}
             />
             <button
               className="btn"
               onClick={async () => {
-                if (await act("admin_set", { p_key: k, p_value: set[k] ?? "" }))
+                try {
+                  onError("");
+                  await rpc("app_admin_save_settings", {
+                    p_token: token,
+                    p_keeper_word: k === "keeper_word" ? set[k] ?? ad.settings.keeper_word : ad.settings.keeper_word,
+                    p_keeper_password: k === "keeper_password" ? set[k] ?? "" : "",
+                    p_admin_password: k === "admin_password" ? set[k] ?? "" : "",
+                  });
                   setSet({ ...set, [k]: "" });
+                } catch (e: any) {
+                  onError(e.message);
+                }
               }}
             >
               Set
@@ -704,7 +858,7 @@ function Admin({
   );
 }
 
-function AddCrew({ pass, onCode }: { pass: string; onCode: (c: string) => void }) {
+function AddCrew({ token, onCode }: { token: string; onCode: (c: string) => void }) {
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
   return (
@@ -714,7 +868,11 @@ function AddCrew({ pass, onCode }: { pass: string; onCode: (c: string) => void }
         e.preventDefault();
         setErr("");
         try {
-          onCode(await rpc<string>("admin_add_crew", { p_pass: pass, p_name: name }));
+          const crew = await rpc<{ login_code: string }>("app_admin_add_crew_secure", {
+            p_token: token,
+            p_name: name,
+          });
+          onCode(crew.login_code);
           setName("");
         } catch (e: any) {
           setErr(e.message);
