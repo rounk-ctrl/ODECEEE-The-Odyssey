@@ -2,14 +2,14 @@
 
 A mobile-first, no-map GPS treasure hunt presented by IET NITK, with a live volunteer console.
 
-## Run locally in this Repl
+## Run locally
 
-The project has two registered app services:
+The project is split into two main artifacts:
 
-- **Web app:** `artifacts/odyssey-hunt` at `/`
-- **API:** `artifacts/api-server` at `/api`; Socket.IO uses `/api/socket.io`
+- **Static frontend:** `artifacts/odyssey-hunt`
+- **API service:** `artifacts/api-server`
 
-Start or restart the managed `artifacts/odyssey-hunt: web` and `artifacts/api-server: API Server` workflows from Replit. The API workflow generates Prisma Client, applies development migrations, runs the idempotent development seed, and starts the server. Do not create a second workflow for either service.
+The GitHub Pages deployment builds only `artifacts/odyssey-hunt`; Supabase remains the production data layer. Run the frontend and API separately in local development when you need both surfaces.
 
 Useful commands:
 
@@ -52,7 +52,7 @@ The player route never displays a map or future checkpoint coordinates. The volu
 
 ## Environment and data
 
-The API requires the Replit-managed `DATABASE_URL`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD` secrets. Set `JWT_SECRET` if desired; otherwise the server uses the existing `SESSION_SECRET`. The selected signing secret must be at least 32 characters. Do not put real credentials in `.env.example` or source control.
+The API requires `DATABASE_URL`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD`. Set `JWT_SECRET` if desired; otherwise the server uses the existing `SESSION_SECRET`. The selected signing secret must be at least 32 characters. Do not put real credentials in `.env.example` or source control.
 
 PostgreSQL and Prisma schema:
 
