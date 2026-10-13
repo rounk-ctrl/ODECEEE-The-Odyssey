@@ -1,7 +1,7 @@
 const required = (name: string): string => {
   const value = process.env[name]?.trim();
   if (!value) {
-    throw new Error(`${name} is required. Add it in Replit Secrets or the PostgreSQL setup.`);
+    throw new Error(`${name} is required. Add it to the deployment environment.`);
   }
   return value;
 };
@@ -10,7 +10,7 @@ const jwtSecret =
   process.env.JWT_SECRET?.trim() || process.env.SESSION_SECRET?.trim();
 if (!jwtSecret) {
   throw new Error(
-    "JWT_SECRET or SESSION_SECRET is required. Add it in Replit Secrets.",
+    "JWT_SECRET or SESSION_SECRET is required. Add it to the deployment environment.",
   );
 }
 if (jwtSecret.length < 32) {
