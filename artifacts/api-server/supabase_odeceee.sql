@@ -75,9 +75,17 @@ declare
   first_id int;
   route int[];
 begin
-  select array_agg(id order by id) into non_fixed_ids from islands where not is_fixed;
+  select array_agg(id order by id)
+  into non_fixed_ids
+  from (
+    select id
+    from islands
+    where not is_fixed
+    order by id
+    limit 5
+  ) non_fixed;
   if non_fixed_ids is null or array_length(non_fixed_ids, 1) <> 5 then
-    raise exception 'Exactly five non-fixed islands are required.';
+    raise exception 'At least five non-fixed islands are required.';
   end if;
 
   select id into fixed6 from islands where is_fixed and fixed_order = 6 limit 1;
@@ -854,19 +862,22 @@ end;
 $$;
 
 insert into islands(theme, location_name, coords, is_fixed, fixed_order)
-values
-  ('Cyclops', 'LHC-D', '3.9', false, null),
-  ('Lotus', 'SAC', '8.6', false, null),
-  ('Siren', 'Suprabha', '6.3', false, null),
-  ('Circe''s Pig', 'CCC', '7.9', false, null),
-  ('Giant', 'NSC', '12.8', false, null),
-  ('Whirlpool and Monster', 'MB', '4.5', true, 6),
-  ('Suitors', 'Pavillion', '5.5', true, 7)
-on conflict do nothing;
+select *
+from (
+  values
+    ('Cyclops', 'LHC-D', '3.9', false, null),
+    ('Lotus', 'SAC', '8.6', false, null),
+    ('Siren', 'Suprabha', '6.3', false, null),
+    ('Circe''s Pig', 'CCC', '7.9', false, null),
+    ('Giant', 'NSC', '12.8', false, null),
+    ('Whirlpool and Monster', 'MB', '4.5', true, 6),
+    ('Suitors', 'Pavillion', '5.5', true, 7)
+) as seed(theme, location_name, coords, is_fixed, fixed_order)
+where not exists (select 1 from islands);
 
 insert into decoy_locations(theme, location_name, coords)
-values ('Hades'' Shore', '(placeholder)', '0.0')
-on conflict do nothing;
+select 'Hades'' Shore', '(placeholder)', '0.0'
+where not exists (select 1 from decoy_locations);
 
 insert into settings(id, keeper_password, admin_password, keeper_word)
 values (1, 'keeper123', 'admin123', 'TESTWORD')
