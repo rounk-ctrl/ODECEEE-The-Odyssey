@@ -70,6 +70,19 @@ Use a deployment configuration that keeps the API to one instance for the event.
 
 The API’s production build generates Prisma Client and bundles the service; it does not migrate the production database or seed it during build. Apply production migrations separately before publishing schema-dependent code. Confirm production credentials and real checkpoint coordinates are in the correct environment before opening the event.
 
+### GitHub Pages (`odeceee.me`)
+
+The `Deploy to GitHub Pages` workflow builds `artifacts/odyssey-hunt` and deploys it when changes are pushed to `main` (or when manually dispatched). GitHub Pages hosts only the static frontend; configure the Supabase project and deploy its schema/RPCs separately.
+
+Before the first deploy:
+
+1. Add repository Actions secrets named `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` with the production Supabase project values. The build fails if either is missing.
+2. In **Settings → Pages**, set the build and deployment source to **GitHub Actions**.
+3. Configure the domain's DNS for the apex `odeceee.me` with GitHub Pages A records `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, and `185.199.111.153`. Optionally add the corresponding AAAA records `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`, and `2606:50c0:8003::153`.
+4. After DNS resolves, enter `odeceee.me` as the custom domain in **Settings → Pages** and enable **Enforce HTTPS** when available.
+
+The `CNAME` file is included in the published site, and the workflow provides a `404.html` fallback so direct navigation to client-side routes continues to work.
+
 ## Product routes
 
 - `/` — team pass entry and event waiting state
