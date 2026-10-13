@@ -270,9 +270,14 @@ export default function App() {
   const addCrew = async (event: FormEvent) => {
     event.preventDefault();
     if (!operator) return;
-    await callRpc('app_admin_add_crew_secure', { p_token: operator.token, p_name: newCrew });
-    setNewCrew('');
-    await refreshSnapshot();
+    try {
+      await callRpc('app_admin_add_crew_secure', { p_token: operator.token, p_name: newCrew.trim() });
+      setNewCrew('');
+      setOpNote('');
+      await refreshSnapshot();
+    } catch (error) {
+      setOpNote(error instanceof Error ? error.message : 'Could not add crew.');
+    }
   };
 
   const removeCrew = async (teamId: number) => {
