@@ -283,7 +283,40 @@ begin
     'coords', v_coords,
     'finished_at', v_team.finished_at,
     'winner', (v_winner_id = v_team.id),
-    'wait_seconds', greatest(v_wait_seconds, 0)
+    'wait_seconds', greatest(v_wait_seconds, 0),
+    'leaderboard', coalesce((
+      with score_board as (
+        select
+          t.id,
+          t.name,
+          coalesce(sum(l.amount), 0)::int as total_points,
+          least(greatest(t.current_step - 1, 0), 7) as islands_completed,
+          t.finished_at
+        from teams t
+        left join ledger l on l.team_id = t.id
+        group by t.id
+      ), ranked as (
+        select
+          row_number() over (order by total_points desc, finished_at asc nulls last, name asc) as rank,
+          id,
+          name,
+          total_points,
+          islands_completed,
+          finished_at,
+          (id = v_winner_id) as winner
+        from score_board
+      )
+      select jsonb_agg(jsonb_build_object(
+        'rank', rank,
+        'team_id', id,
+        'team_name', name,
+        'total_points', total_points,
+        'islands_completed', islands_completed,
+        'finished_at', finished_at,
+        'winner', winner
+      ) order by rank)
+      from ranked
+    ), '[]'::jsonb)
   );
 end;
 $$;

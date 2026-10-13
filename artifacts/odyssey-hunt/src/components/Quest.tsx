@@ -47,6 +47,7 @@ type CrewStateResponse = {
   coords: string;
   finished_at: string | null;
   wait_seconds: number;
+  leaderboard: any[];
 };
 type CrewSubmitResponse = { ok: boolean; message: string };
 type SnapshotResponse = {
@@ -321,6 +322,16 @@ function Crew({ teamId, token, onOut }: { teamId: number; token: string; onOut: 
           )}
         </>
       )}
+      <H>The Ledger</H>
+      <Board
+        rows={(st.leaderboard ?? []).map((r: any) => ({
+          ...r,
+          id: r.team_id,
+          name: r.team_name,
+          points: r.total_points,
+          completed: r.islands_completed,
+        }))}
+      />
     </section>
   );
 }
