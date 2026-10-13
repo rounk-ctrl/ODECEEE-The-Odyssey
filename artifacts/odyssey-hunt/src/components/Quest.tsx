@@ -480,7 +480,7 @@ function Staff({ token, admin }: { token: string; admin: boolean }) {
       <H>Add or deduct points</H>
       <Adjust crews={board} act={act} />
 
-      {admin && ad && <Admin pass={pass} ad={ad} board={board} act={act} />}
+      {admin && ad && <Admin token={token} ad={ad} board={board} act={act} onError={setErr} />}
     </section>
   );
 }
@@ -645,11 +645,13 @@ function Admin({
   ad,
   board,
   act,
+  onError,
 }: {
   token: string;
   ad: any;
   board: any[];
   act: (f: string, a: any) => Promise<boolean>;
+  onError: (message: string) => void;
 }) {
   const [newCode, setNewCode] = useState("");
   const [set, setSet] = useState<Record<string, string>>({});
@@ -800,6 +802,7 @@ function Admin({
               className="btn"
               onClick={async () => {
                 try {
+                  onError("");
                   await rpc("app_admin_save_settings", {
                     p_token: token,
                     p_keeper_word: k === "keeper_word" ? set[k] ?? ad.settings.keeper_word : ad.settings.keeper_word,
@@ -808,7 +811,7 @@ function Admin({
                   });
                   setSet({ ...set, [k]: "" });
                 } catch (e: any) {
-                  setErr(e.message);
+                  onError(e.message);
                 }
               }}
             >
